@@ -10,3 +10,4 @@ Then you need to download the data with this command
 ```
 kaggle competitions download -c child-mind-institute-problematic-internet-use
 ```
+After downloading the data you will need to unzip the zip file to this directory: `data/`. Our code assumes that the dataset is located here.
