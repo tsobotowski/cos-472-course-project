@@ -1,16 +1,17 @@
+from sklearn.preprocessing import LabelEncoder
 import pandas as pd
 import numpy as np
 
 
 def prepare_data(df):
     """
-    Prepare dataset by handling missing values and cleaning data.
+    Prepare dataset by handling missing values and converting categorical data to integers.
     
     Args:
         df: pandas DataFrame with the raw data
     
     Returns:
-        Cleaned pandas DataFrame ready for modeling
+        Cleaned pandas DataFrame ready for modeling with all categorical variables encoded
     """
     # Make a copy to avoid modifying original data
     data = df.copy()
@@ -20,45 +21,78 @@ def prepare_data(df):
     columns_to_drop = missing_percentages[missing_percentages > 0.7].index.tolist()
     data = data.drop(columns=columns_to_drop)
     
-    # Handle remaining numeric columns
-    numeric_columns = data.select_dtypes(include=[np.number]).columns
+    # Create label encoder
+    le = LabelEncoder()
+    
+    # Handle each column based on its type and content
+    for column in data.columns:
+        if column == 'id':  # Skip id column
+            continue
+            
+        # Convert column to string temporarily to handle mixed types
+        data[column] = data[column].astype(str)
+        
+        # Replace empty strings and 'nan' with None
+        data[column] = data[column].replace({'': None, 'nan': None})
+        
+        # Check if column contains only numeric values
+        numeric_mask = data[column].str.match(r'^-?\d*\.?\d*$').fillna(False)
+        all_numeric = numeric_mask.all()
+        
+        if all_numeric:
+            # Convert to float and fill NaN with median
+            data[column] = pd.to_numeric(data[column], errors='coerce')
+            median_val = data[column].median()
+            data[column] = data[column].fillna(median_val)
+        else:
+            # Encode categorical values
+            # First fill NaN with a placeholder
+            data[column] = data[column].fillna('missing')
+            
+            # Apply label encoding
+            data[column] = le.fit_transform(data[column])
+    
+    # Handle specific columns that should be numeric
+    numeric_columns = [
+        'Basic_Demos-Age',
+        'Basic_Demos-Sex',
+        'CGAS-CGAS_Score',
+        'Physical-BMI',
+        'Physical-Height',
+        'Physical-Weight',
+        'Physical-Waist_Circumference',
+        'Physical-Diastolic_BP',
+        'Physical-HeartRate',
+        'Physical-Systolic_BP',
+        'sii'  # target variable
+    ]
     
     for col in numeric_columns:
-        # Calculate median for the column (excluding NaN)
-        median_value = data[col].median()
-        
-        # Fill NaN with median
-        if pd.isna(data[col]).any():
-            data[col] = data[col].fillna(median_value)
+        if col in data.columns:
+            data[col] = pd.to_numeric(data[col], errors='coerce')
+            # Fill NaN with median
+            median_val = data[col].median()
+            data[col] = data[col].fillna(median_val)
     
-    # Handle categorical variables
-    categorical_columns = data.select_dtypes(include=['object']).columns
-    
-    for col in categorical_columns:
-        # Fill missing values with mode (most frequent value)
-        mode_value = data[col].mode()[0]
-        data[col] = data[col].fillna(mode_value)
-    
-    # Special handling for Season columns (convert to numeric)
+    # Convert season columns to integers (0-3)
     season_columns = [col for col in data.columns if col.endswith('-Season')]
     season_mapping = {'Spring': 0, 'Summer': 1, 'Fall': 2, 'Winter': 3}
     
     for col in season_columns:
-        data[col] = data[col].map(season_mapping)
-        # Fill any remaining NaN with mode
-        data[col] = data[col].fillna(data[col].mode()[0])
-    
-    # Handle Sex column
-    if 'Basic_Demos-Sex' in data.columns:
-        data['Basic_Demos-Sex'] = data['Basic_Demos-Sex'].astype(int)
-    
-    # Special handling for PCIAT columns
-    pciat_columns = [col for col in data.columns if col.startswith('PCIAT-')]
-    for col in pciat_columns:
         if col in data.columns:
-            data[col] = pd.to_numeric(data[col], errors='coerce')
-            # Fill NaN with median
-            data[col] = data[col].fillna(data[col].median())
+            # First convert any numeric-like values to strings
+            data[col] = data[col].astype(str)
+            # Map seasons to integers
+            data[col] = data[col].map(lambda x: season_mapping.get(x, 4))  # 4 for unknown values
+            # Fill any NaN with mode
+            data[col] = data[col].fillna(data[col].mode()[0])
+    
+    # Final verification that all columns are numeric
+    for column in data.columns:
+        if column != 'id':  # Skip id column
+            data[column] = pd.to_numeric(data[column], errors='coerce')
+            # Fill any remaining NaN with column median
+            data[column] = data[column].fillna(data[column].median())
     
     # Verify no missing values remain
     assert data.isnull().sum().sum() == 0, "There are still missing values in the dataset"
